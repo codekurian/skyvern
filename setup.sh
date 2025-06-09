@@ -1,5 +1,13 @@
 #!/bin/bash
 
+USE_STANDALONE_POSTGRES=true
+
+for arg in "$@"; do
+    if [ "$arg" == "--standalone-postgres" ]; then
+        USE_STANDALONE_POSTGRES=true
+    fi
+done
+
 # Call function to send telemetry event
 log_event() {
     if [ -n $1 ]; then
@@ -14,16 +22,18 @@ command_exists() {
 
 ensure_required_commands() {
     # Ensure required commands are available
-    for cmd in poetry npm docker; do
+    for cmd in poetry npm; do
         if ! command_exists "$cmd"; then
             echo "Error: $cmd is not installed." >&2
             exit 1
         fi
     done
-    # Check docker if running
-    if ! docker info > /dev/null 2>&1; then
-        echo "Docker is not running. Please start Docker and try again."
-        exit 1
+    # Only check Docker if not using standalone Postgres
+    if [ "$USE_STANDALONE_POSTGRES" != true ]; then
+        if ! command_exists docker || ! docker info > /dev/null 2>&1; then
+            echo "Docker is not running. Please start Docker and try again."
+            exit 1
+        fi
     fi
 }
 
@@ -293,26 +303,53 @@ install_dependencies_after_poetry_env() {
     playwright install
 }
 
+# Function to set the PostgreSQL connection string
+set_postgres_connection_string() {
+    local conn_str="postgresql+psycopg://skyvern:skyvern@localhost:5432/skyvern"
+    update_or_add_env_var "DATABASE_STRING" "$conn_str"
+    echo "DATABASE_STRING set to $conn_str"
+}
+
 # Function to setup PostgreSQL
 setup_postgresql() {
-    echo "Installing postgresql using brew"
+    echo "Checking for existing PostgreSQL installation..."
 
-    # Attempt to connect to the default PostgreSQL service if it's already running via psql
-    if command_exists psql; then
-        if pg_isready; then
-            echo "PostgreSQL is already running locally."
-            # Assuming the local PostgreSQL setup is ready for use
-            if psql skyvern -U skyvern -c '\q'; then
-                echo "Connection successful. Database and user exist."
-            else
-                createuser skyvern
-                createdb skyvern -O skyvern
-                echo "Database and user created successfully."
-            fi
+    if [ "$USE_STANDALONE_POSTGRES" = true ]; then
+        # Install PostgreSQL via Homebrew if not present
+        if ! command_exists psql; then
+            echo "psql not found. Installing PostgreSQL 14 via Homebrew..."
+            brew install postgresql@14
+            brew services start postgresql@14
+            # Add Homebrew's bin to PATH for this session if needed
+            export PATH="/usr/local/opt/postgresql@14/bin:$PATH"
+            sleep 5
+        else
+            # Ensure the service is started
+            brew services start postgresql@14
+        fi
+    fi
+
+    if command_exists psql && pg_isready > /dev/null 2>&1; then
+        echo "PostgreSQL is already running locally."
+        # Check if the database and user exist
+        if psql -U skyvern -d skyvern -c '\q' 2>/dev/null; then
+            echo "Database and user exist. Skipping creation."
+            set_postgres_connection_string
+            return 0
+        else
+            echo "Database or user does not exist. Creating them..."
+            createuser skyvern || true
+            createdb skyvern -O skyvern || true
+            set_postgres_connection_string
             return 0
         fi
     fi
-    
+
+    if [ "$USE_STANDALONE_POSTGRES" = true ]; then
+        echo "Standalone Postgres flag is set, but no running local Postgres was found. Please start Postgres (e.g., with 'brew services start postgresql@14') and rerun this script."
+        exit 1
+    fi
+
     # Check if Docker is installed and running
     if ! command_exists docker || ! docker info > /dev/null 2>&1; then
         echo "Docker is not running or not installed. Please install or start Docker and try again."
@@ -334,7 +371,7 @@ setup_postgresql() {
     fi
 
     # Assuming docker exec works directly since we've checked Docker's status before
-    if docker exec postgresql-container psql -U postgres -c "\du" | grep -q skyvern; then
+    if docker exec postgresql-container psql -U postgres -c "\\du" | grep -q skyvern; then
         echo "Database user exists."
     else
         echo "Creating database user..."
@@ -348,6 +385,7 @@ setup_postgresql() {
         docker exec postgresql-container createdb -U postgres skyvern -O skyvern
         echo "Database and user created successfully."
     fi
+    set_postgres_connection_string
 }
 
 # Function to run Alembic upgrade
