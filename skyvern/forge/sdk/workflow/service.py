@@ -1250,7 +1250,7 @@ class WorkflowService:
         payload_dict = json.loads(workflow_run_status_response.model_dump_json())
         workflow_run_response_dict = json.loads(workflow_run_response.model_dump_json())
         payload_dict.update(workflow_run_response_dict)
-        payload = json.dumps(payload_dict, default=str)
+        payload = json.dumps(payload_dict, separators=(",", ":"), ensure_ascii=False)
         headers = generate_skyvern_webhook_headers(
             payload=payload,
             api_key=api_key,
@@ -1268,7 +1268,7 @@ class WorkflowService:
                 resp = await client.post(
                     url=workflow_run.webhook_callback_url, data=payload, headers=headers, timeout=httpx.Timeout(30.0)
                 )
-            if resp.status_code == 200:
+            if resp.status_code >= 200 and resp.status_code < 300:
                 LOG.info(
                     "Webhook sent successfully",
                     workflow_id=workflow_id,
