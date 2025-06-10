@@ -27,7 +27,6 @@ greenlet = [
 ]
 pillow = "^10.1.0"
 starlette-context = "^0.3.6"
-ddtrace = "^2.3.2"
 pydantic = "^2.5.2"
 pydantic-settings = "^2.1.0"
 fastapi = "^0.115.4"
@@ -53,7 +52,6 @@ onnxruntime = [
     { version = "<1.17", python = ">=3.11, <3.12"}
 ]
 aioredlock = "^0.7.3"
-stripe = "^9.7.0"
 tldextract = "^5.1.2"
 websockets = "^12.0"
 email-validator = "^2.2.0"
