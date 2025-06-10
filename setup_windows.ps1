@@ -70,6 +70,7 @@ Pop-Location
 # 6. Run Alembic migrations
 Write-Host "Running Alembic migrations..."
 python -m alembic upgrade head
+python -m alembic check
 
 # 7. (Optional) Create organization and API token
 if (Test-Path "scripts/create_organization.py") {
